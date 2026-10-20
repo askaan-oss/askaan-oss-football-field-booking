@@ -1,0 +1,8 @@
+TÀI LIỆU HƯỚNG DẪN CÀI ĐẶT VÀ KHỞI CHẠY HỆ THỐNG ĐẶT SÂN BÓNG ĐÁ ĐA CHI NHÁNH
+I. YÊU CẦU MÔI TRƯỜNG & PHẦN MỀM CẦN CÀI TRƯỚC
+Để chạy toàn bộ hệ thống, máy tính của bạn cần cài đặt sẵn:
+Node.js: Phiên bản LTS (Khuyến nghị bản 18 hoặc 20).
+XAMPP: Dùng để chạy máy chủ cơ sở dữ liệu MySQL (và phpMyAdmin).
+Flutter SDK: Phiên bản mới nhất (đã cấu hình biến môi trường PATH).
+Android Studio hoặc VS Code: Đã cài sẵn tiện ích Flutter & Dart, có sẵn máy ảo Android Emulator hoặc dây cáp nối điện thoại thật.
+Git: Để quản lý mã nguồn.
