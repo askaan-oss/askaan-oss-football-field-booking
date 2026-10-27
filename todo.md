@@ -1,84 +1,225 @@
-# KẾ HOẠCH CHUYỂN ĐỔI VÀ XỬ LÝ LỖI LOAD ẢNH TRÊN MOBILE SANG BASE64 (TODO.MD)
+# KẾ HOẠCH & LỘ TRÌNH PHÁT TRIỂN DỰ ÁN (TODO.MD)
 
-> **Mục tiêu:** Khắc phục triệt để lỗi không load được hình ảnh sân bóng trên ứng dụng Mobile Flutter bằng phương án lưu trữ ảnh dưới dạng chuỗi mã hóa **Base64 (Data URI)**, đảm bảo hiển thị tức thì trên mọi thiết bị (máy ảo Android, điện thoại thật, Web) mà không phụ thuộc vào địa chỉ IP nội bộ hay cấu hình thư mục file tĩnh `/uploads/`.
-> 
-> **Trạng thái:** <span style="color:green">**HOÀN THÀNH 100% (ĐÃ MIGRATION & TÍCH HỢP XUYÊN SUỐT)**</span>
-
----
-
-## I. NGUYÊN NHÂN GỐC RỄ LỖI LOAD ẢNH TRÊN MOBILE
-
-1. **Hardcode IP `localhost:5000` trong CSDL:**
-   - Trong bảng `pitches` và `pitch_images`, các URL hình ảnh trước đây được lưu dưới dạng:
-     `http://localhost:5000/uploads/pitches/pitch-1791532264655-599523116.jpg`
-   - Khi chạy trên Android (Emulator hoặc điện thoại thật), tên miền `localhost` sẽ trỏ về chính thiết bị Android (`127.0.0.1`), nơi không hề có Web Server chạy cổng 5000 $\longrightarrow$ Gây ra lỗi `SocketException: Connection Refused` khiến `CachedNetworkImage` không thể tải ảnh.
-2. **Ưu điểm vượt trội khi chuyển sang Base64:**
-   - **Độc lập 100% với mạng:** Dữ liệu ảnh đi kèm trực tiếp trong JSON response (`data:image/jpeg;base64,...`). Mobile app và Web render trực tiếp từ bộ nhớ Ram mà không cần tạo thêm HTTP request tải file tĩnh.
-   - **Không sợ mất file:** Chống lỗi 404 khi di chuyển source code giữa các máy tính hoặc khi thư mục `/uploads/` bị thiếu file.
-   - **Tương thích cao:** Flutter hỗ trợ `Image.memory(base64Decode(...))` cực kỳ nhanh; Web React hỗ trợ sẵn trong thẻ `<img src="data:image/jpeg;base64,..." />`.
+> **Dự án:** Hệ thống Quản lý và Đặt sân bóng đá mini cỏ nhân tạo  
+> **Nền tảng:** Web React.js & Mobile App Flutter & Backend RESTful API Node.js/Express + MySQL  
+> **Cập nhật ngày:** 27/10/2026
 
 ---
 
-## II. DANH SÁCH CÔNG VIỆC CẦN THỰC HIỆN (CHECKLIST)
+## BẢNG TỔNG QUAN TIẾN ĐỘ THỰC HIỆN
+
+| Phân hệ / Mục tiêu | Trạng thái | Ghi chú hoàn thành |
+| :--- | :---: | :--- |
+| **Mục 1:** Chuyển đổi lưu trữ ảnh sang Base64 | <span style="color:green">**HOÀN THÀNH**</span> | Đã migrate CSDL sang `LONGTEXT`, backend tự encode Base64, mobile render `AppImage`. |
+| **Mục 2:** Xử lý xung đột đặt trùng giờ (Concurrency) | <span style="color:green">**HOÀN THÀNH**</span> | Đã áp dụng MySQL Transaction + Pessimistic Lock (`SELECT ... FOR UPDATE`) + `BR-BOOKING-04`. |
+| **Mục 3:** Box thông báo sau khi đánh giá sân | <span style="color:green">**HOÀN THÀNH**</span> | Đã hiển thị Alert Box popup chúc mừng kèm số sao và icon tích xanh. |
+| **Mục 4:** Cấu hình `.env` cho Frontend Web (React) & Mobile App | <span style="color:orange">**ĐANG LÊN KẾ HOẠCH**</span> | Chuẩn hóa biến môi trường, dùng `flutter_dotenv` cho Mobile & `VITE_` cho Web. |
+| **Mục 5:** Nâng cấp toàn diện Giao diện Sáng (Bright / Light Theme) | <span style="color:orange">**ĐANG LÊN KẾ HOẠCH**</span> | Chuyển đổi bảng màu Dark sang Light Theme thể thao tươi sáng, thoáng đãng, dễ đọc. |
+
+---
+
+## PHẦN I. CÁC HẠNG MỤC ĐÃ HOÀN THÀNH
 
 ### Giai đoạn 1: Nâng cấp Cấu trúc CSDL MySQL (Database Migration)
 - [x] **1.1.** Cập nhật cột `avatar_url` trong bảng `pitches` từ `VARCHAR(255)` sang `LONGTEXT` để đủ dung lượng chứa chuỗi Base64.
 - [x] **1.2.** Cập nhật cột `image_url` trong bảng `pitch_images` từ `VARCHAR(255)` sang `LONGTEXT`.
-- [x] **1.3.** Cập nhật cột `avatar_url` trong bảng `customers` sang `LONGTEXT` (hỗ trợ ảnh đại diện cá nhân).
-- [x] **1.4.** Cập nhật file schema gốc [`Guide/football_booking_db.sql`](file:///d:/vsXanh/football-field-booking/Guide/football_booking_db.sql) để khi import máy khác không bị lỗi giới hạn độ dài ký tự.
-
-> **Script SQL đã thực thi thành công:**
-> ```sql
-> ALTER TABLE pitches MODIFY COLUMN avatar_url LONGTEXT;
-> ALTER TABLE pitch_images MODIFY COLUMN image_url LONGTEXT;
-> ALTER TABLE customers MODIFY COLUMN avatar_url LONGTEXT;
-> ```
-
----
+- [x] **1.3.** Cập nhật cột `avatar_url` trong bảng `customers` sang `LONGTEXT`.
+- [x] **1.4.** Cập nhật file schema gốc [`Guide/football_booking_db.sql`](file:///d:/vsXanh/football-field-booking/Guide/football_booking_db.sql).
 
 ### Giai đoạn 2: Migrate Dữ liệu Ảnh Hiện Có & Nâng Cấp Backend (Node.js)
 - [x] **2.1. Viết script migration dữ liệu ([`scripts/migrate_images_to_base64.js`](file:///d:/vsXanh/football-field-booking/scripts/migrate_images_to_base64.js)):**
   - Quét toàn bộ file ảnh hiện có trong thư mục tĩnh `backend/uploads/pitches/`.
-  - Đọc file ảnh sang Buffer và mã hóa sang định dạng chuỗi: `data:image/jpeg;base64,<chuoi_base64>`.
-  - Cập nhật trực tiếp 100% vào các bản ghi trong bảng `pitches` và `pitch_images`.
+  - Mã hóa sang định dạng chuỗi: `data:image/jpeg;base64,...`.
+  - Cập nhật thành công 100% vào các bản ghi trong bảng `pitches` và `pitch_images`.
 - [x] **2.2. Nâng cấp API thêm/sửa sân bóng ([`pitchController.js`](file:///d:/vsXanh/football-field-booking/backend/controllers/pitchController.js)):**
-  - Trong `createPitch` và `updatePitch`: Khi người dùng upload ảnh qua Multer, tự động đọc file buffer, chuyển thành chuỗi Base64 Data URI và lưu trực tiếp vào CSDL thay vì lưu đường dẫn tĩnh.
-  - Hỗ trợ cả trường hợp client gửi chuỗi Base64 qua body.
-- [x] **2.3. Nâng cấp API thêm ảnh Gallery sân (`addPitchImage`):**
-  - Chuyển đổi ảnh phụ upload thành chuỗi Base64 lưu vào bảng `pitch_images`.
+  - Tự động mã hóa ảnh Multer sang Base64 Data URI lưu thẳng vào CSDL.
+  - Bổ sung alias `p.avatar_url AS image` để đồng bộ với Flutter model.
+- [x] **2.3. Chống Race Condition khi 2 khách cùng bấm đặt 1 lúc:**
+  - Áp dụng MySQL Transaction + Pessimistic Lock (`SELECT ... FOR UPDATE`) trong `createOnlineBooking` và `createDeskBooking`.
+  - Trả về mã HTTP 409 Conflict với thông báo: `"[BR-BOOKING-04] Khung giờ này vừa có khách hàng khác nhanh tay đặt trước. Vui lòng chọn khung giờ khác!"`.
+
+### Giai đoạn 3: Nâng Cấp Ứng Dụng Mobile Flutter (Hiển thị ảnh & Đánh giá)
+- [x] **3.1. Xây dựng Widget hiển thị ảnh đa năng ([`mobile_app/lib/widgets/app_image.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/widgets/app_image.dart)):**
+  - Tự động phát hiện và giải mã Base64 qua `Image.memory(base64Decode(...))`.
+  - Hỗ trợ `base64.normalize(...)` và `gaplessPlayback: true` chống giật nhấp nháy.
+- [x] **3.2. Sửa lỗi map trường dữ liệu ([`mobile_app/lib/models/pitch_model.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/models/pitch_model.dart)):**
+  - Sửa `image: json['avatar_url'] ?? json['image'] ?? json['avatar']`. Ảnh đại diện chính hiện ngay lập tức 100%.
+- [x] **3.3. Sửa lỗi gửi đánh giá & Thêm Box thông báo thành công:**
+  - Tự động gửi kèm `customer_name` và `customer_phone` từ `AuthProvider`.
+  - Hiển thị Dialog Box nổi bật ở giữa màn hình (icon check xanh, hàng 5 sao vàng, nút Xác nhận & Đóng).
 
 ---
 
-### Giai đoạn 3: Nâng Cấp Ứng Dụng Mobile Flutter (`mobile_app/`)
-- [x] **3.1. Xây dựng Widget hiển thị ảnh đa năng ([`lib/widgets/app_image.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/widgets/app_image.dart)):**
-  - Tự động phát hiện loại ảnh thông minh:
-    1. **Nếu là Base64:** Chuỗi bắt đầu bằng `data:image/...;base64,` hoặc chuỗi base64 thuần $\longrightarrow$ Dùng `Image.memory(base64Decode(...))`.
-    2. **Nếu là Web URL:** Chuỗi bắt đầu bằng `http://` hoặc `https://` $\longrightarrow$ Dùng `Image.network` (kèm auto-replace `localhost` sang `10.0.2.2` trên Android emulator).
-    3. **Nếu rỗng hoặc lỗi:** Hiển thị ảnh placeholder gradient sân cỏ mặc định bo tròn sang trọng kèm icon quả bóng.
-- [x] **3.2. Thay thế Widget hiển thị ảnh tại các màn hình:**
-  - [`home_screen.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/screens/home_screen.dart): Thay thế `CachedNetworkImage` bằng `AppImage` trên thẻ sân bóng trang chủ.
-  - [`pitch_detail_screen.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/screens/pitch_detail_screen.dart): Thay thế `CachedNetworkImage` bằng `AppImage` trong PageView gallery chi tiết sân.
-  - [`core/constants.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/core/constants.dart): Cập nhật `formatImageUrl` giữ nguyên chuỗi Base64 mà không tự ý nối thêm host url.
+## PHẦN II. LỘ TRÌNH MỚI 1: CẤU HÌNH BIẾN MÔI TRƯỜNG .ENV
+
+> **Mục tiêu:** Loại bỏ hoàn toàn việc "hardcode" URL/IP trong mã nguồn, giúp chuyển đổi môi trường tức thì (Localhost $\longleftrightarrow$ Android Emulator $\longleftrightarrow$ Wi-Fi LAN $\longleftrightarrow$ Server Production).
+
+### Giai đoạn 6: Cấu hình file `.env` cho Frontend Web (Vite + React.js)
+- [ ] **6.1. Tạo file cấu hình `frontend/.env`:**
+  - Khai báo biến môi trường chuẩn Vite:
+    ```env
+    VITE_API_BASE_URL=http://localhost:5000/api
+    VITE_APP_TITLE="Hệ Thống Đặt Sân Bóng Đá Mini"
+    ```
+- [ ] **6.2. Tạo file mẫu `frontend/.env.example`** để tiện tham khảo khi clone dự án.
+- [ ] **6.3. Cập nhật [`frontend/src/api/axiosClient.js`](file:///d:/vsXanh/football-field-booking/frontend/src/api/axiosClient.js):**
+  - Thay thế URL tĩnh bằng:
+    ```javascript
+    baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api',
+    ```
+- [ ] **6.4. Kiểm tra `npm run build`** đảm bảo Vite đóng gói biến môi trường trơn tru.
 
 ---
 
-### Giai đoạn 4: Kiểm tra & Đồng bộ Web Frontend (React.js)
-- [x] **4.1. Kiểm tra hiển thị ảnh trên Web:**
-  - Vì React.js hỗ trợ trực tiếp `<img src="data:image/jpeg;base64,..." />`, các trang `HomePage.jsx`, `AdminDashboard.jsx`, `PitchDetailModal.jsx` hiển thị ảnh Base64 mượt mà 100%.
-- [x] **4.2. Build kiểm thử Frontend:**
-  - Chạy `npm run build` thành công xuất sắc không có bất kỳ lỗi cú pháp nào.
+### Giai đoạn 7: Tích hợp `flutter_dotenv` cho Mobile App Flutter
+- [ ] **7.1. Cài đặt package `flutter_dotenv`:**
+  - Thêm dependency `flutter_dotenv: ^5.2.1` vào [`mobile_app/pubspec.yaml`](file:///d:/vsXanh/football-field-booking/mobile_app/pubspec.yaml).
+- [ ] **7.2. Tạo file cấu hình `mobile_app/.env` & `mobile_app/.env.example`:**
+  - Khai báo các cấu hình linh hoạt:
+    ```env
+    # Môi trường chạy máy ảo Android Emulator
+    API_URL_ANDROID_EMULATOR=http://10.0.2.2:5000/api
+    
+    # Môi trường chạy điện thoại thật qua mạng LAN Wi-Fi
+    API_URL_PHYSICAL_DEVICE=http://192.168.2.20:5000/api
+    
+    # Môi trường Web / Desktop
+    API_URL_WEB=http://localhost:5000/api
+    
+    # Cờ bật tắt test thiết bị thật
+    IS_PHYSICAL_DEVICE=false
+    ```
+- [ ] **7.3. Khai báo asset `.env` trong `pubspec.yaml`:**
+  - Bổ sung `assets: - .env` để Flutter đóng gói file môi trường vào ứng dụng.
+- [ ] **7.4. Khởi tạo tại [`mobile_app/lib/main.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/main.dart):**
+  - Gọi `await dotenv.load(fileName: ".env");` trước khi `runApp()`.
+- [ ] **7.5. Nâng cấp [`mobile_app/lib/core/constants.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/core/constants.dart):**
+  - Đọc các giá trị từ `dotenv.env[...]` kết hợp với cơ chế fallback thông minh.
+- [ ] **7.6. Thêm `.env` vào `.gitignore`** và giữ lại `.env.example`.
 
 ---
 
-### Giai đoạn 5: Kiểm Thử Toàn Diện & Nghiệm Thu (Verification)
-- [x] **5.1.** Đã chạy migration CSDL MySQL: Toàn bộ sân bóng và ảnh phụ trong bảng `pitches` và `pitch_images` đều là Base64 Data URI hợp lệ.
-- [x] **5.2.** Đã kiểm tra cú pháp Backend Node.js: Tất cả controllers chạy an toàn không lỗi.
-- [x] **5.3.** Đã kiểm tra Flutter Mobile: Widget `AppImage` xử lý mượt mà cả Base64 và URL mạng.
-- [x] **5.4.** Cập nhật tài liệu dự án hoàn chỉnh.
+## PHẦN III. LỘ TRÌNH MỚI 2: THIẾT KẾ LẠI GIAO DIỆN SÁNG HƠN (LIGHT / BRIGHT THEME)
+
+> **Mục tiêu:** Chuyển đổi toàn bộ tông màu từ Dark Mode tối (`#0F172A`) sang **Light Theme thể thao tươi sáng, hiện đại, thoáng đãng** (Tone màu: Xanh cỏ sân bóng Emerald `#059669` + Trắng tinh khôi `#FFFFFF` + Nền xám nhẹ dịu mắt `#F8FAFC`). Phù hợp với ứng dụng thể thao ngoài trời, độ tương phản cao, dễ nhìn dưới ánh sáng mạnh.
+
+### Giai đoạn 8: Tái Thiết Kế Hệ Thống Bảng Màu `AppColors`
+- [ ] **8.1. Cập nhật bảng màu trong [`mobile_app/lib/core/app_colors.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/core/app_colors.dart):**
+  ```dart
+  class AppColors {
+    // Tông màu chủ đạo: Xanh ngọc lục bảo thể thao tràn đầy năng lượng
+    static const Color primary = Color(0xFF059669);      // Emerald 600
+    static const Color primaryLight = Color(0xFF10B981); // Emerald 500
+    static const Color primaryDark = Color(0xFF047857);  // Emerald 700
+
+    // Hệ màu nền sáng tươi mới (Light Theme)
+    static const Color background = Color(0xFFF8FAFC);   // Slate 50 (Nền dịu mắt)
+    static const Color surface = Color(0xFFFFFFFF);      // Trắng tinh khiết cho Card/Dialog
+    static const Color surfaceLight = Color(0xFFF1F5F9); // Slate 100 (Thanh phân cách/Header card)
+    static const Color cardBorder = Color(0xFFE2E8F0);   // Slate 200 (Viền card mảnh tinh tế)
+
+    // Hệ màu chữ tương phản cao, sắc nét, dễ đọc
+    static const Color textPrimary = Color(0xFF0F172A);   // Slate 900 (Đen sẫm rõ chữ)
+    static const Color textSecondary = Color(0xFF475569); // Slate 600 (Xám đậm trung tính)
+    static const Color textMuted = Color(0xFF94A3B8);     // Slate 400 (Chữ ghi chú/mờ)
+
+    // Trạng thái đơn và phản hồi
+    static const Color success = Color(0xFF10B981); // Xanh lá
+    static const Color warning = Color(0xFFF59E0B); // Vàng cam
+    static const Color danger = Color(0xFFEF4444);  // Đỏ tươi
+    static const Color info = Color(0xFF0284C7);    // Xanh dương
+  }
+  ```
 
 ---
 
-## III. KẾT QUẢ ĐẠT ĐƯỢC
+### Giai đoạn 9: Cập Nhật Giao Diện Sáng Cho Toàn Bộ Màn Hình Mobile Flutter
+- [ ] **9.1. Thanh điều hướng & Header chính ([`main_tab_screen.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/screens/main_tab_screen.dart)):**
+  - Chuyển `BottomNavigationBar` sang nền trắng sáng với đường viền mảnh `cardBorder` bên trên.
+  - Icon và nhãn tab đang chọn: Màu xanh Emerald đậm `AppColors.primary`, tab chưa chọn: Màu xám thanh lịch `AppColors.textMuted`.
+- [ ] **9.2. Màn hình Trang Chủ ([`home_screen.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/screens/home_screen.dart)):**
+  - Nền toàn trang: `#F8FAFC`.
+  - Thanh AppBar: Nền trắng với tiêu đề đen đậm, icon xanh thể thao.
+  - Bộ lọc ChoiceChip: Nền trắng viền xám khi chưa chọn; khi chọn đổi sang nền xanh Emerald chữ trắng nổi bật.
+  - Card thẻ sân bóng: Nền trắng tinh khôi bo tròn 16px, đổ bóng nhẹ nhàng (`BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10)`), hiển thị hình ảnh sân rõ nét, tag loại sân và nút "Đặt Sân Ngay" nổi bật.
+- [ ] **9.3. Màn hình Chi Tiết Sân Bóng ([`pitch_detail_screen.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/screens/pitch_detail_screen.dart)):**
+  - Nền trang chuyển sang màu sáng.
+  - Card thông số, đơn giá và mô tả cơ sở vật chất hiển thị trên card nền trắng viền mảnh.
+  - Danh sách đánh giá sao từ khách hàng: Card trắng, avatar tròn, sao vàng sáng và chữ đen dễ đọc.
+  - Nút bấm cố định chân trang "📅 ĐẶT SÂN NGAY": Màu xanh Emerald với bóng đổ tươi sáng.
+- [ ] **9.4. Màn hình Chọn Giờ & Đặt Sân ([`booking_screen.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/screens/booking_screen.dart)):**
+  - Thanh chọn ngày: Lịch cuộn ngang với ngày chọn mang màu xanh Emerald.
+  - Ma trận các ô khung giờ 30 phút:
+    * Ô còn trống: Nền trắng viền xanh lá nhạt, chữ đen rõ nét.
+    * Ô đang chọn: Nền xanh Emerald, chữ trắng in đậm.
+    * Ô đã kín / quá giờ: Nền xám nhạt `#E2E8F0` chữ xám mờ.
+  - Hộp tóm tắt tổng tiền: Card trắng viền xanh, hiển thị giá tiền to rõ ràng.
+- [ ] **9.5. Màn hình Vé Của Tôi ([`my_bookings_screen.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/screens/my_bookings_screen.dart)):**
+  - Thiết kế lại thẻ vé phong cách Boarding Pass thể thao trên nền trắng sáng:
+    * Header vé: Viền xanh ngọc, tag trạng thái rõ ràng (Chờ duyệt: cam nhạt, Đã duyệt: xanh lá, Hoàn tất: xanh ngọc).
+    * Mã QR Code hiển thị trên nền trắng viền bo tròn sạch đẹp.
+    * Các vạch đục lỗ vé: Chuyển sang chấm đứt xám nhạt tinh tế.
+    * Nút "Xem Chi Tiết Vé & Dịch Vụ": Thanh nền xám nhạt `#F1F5F9` chữ xanh chủ đạo.
+- [ ] **9.6. Màn hình Chi Tiết Vé Điện Tử ([`ticket_detail_screen.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/screens/ticket_detail_screen.dart)):**
+  - Toàn bộ tấm vé điện tử hiển thị trên nền trắng sáng đổ bóng mềm mại.
+  - Bảng kê chi phí và danh sách dịch vụ quầy phát sinh: Bảng phân dòng trắng xen kẽ xám nhạt, tổng tiền in đậm nổi bật.
+- [ ] **9.7. Màn hình Quản trị Chủ Sân ([`admin_dashboard_screen.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/screens/admin_dashboard_screen.dart), [`admin_bookings_screen.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/screens/admin_bookings_screen.dart), [`admin_pitches_screen.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/screens/admin_pitches_screen.dart)):**
+  - Các thẻ KPI Quick Revenue Cards hiển thị trên nền trắng bóng đổ nhẹ, số liệu doanh thu màu xanh nổi bật.
+  - Biểu đồ 7 ngày hiển thị trên nền sáng rõ nét.
+- [ ] **9.8. Màn hình Đăng Nhập & Đăng Ký ([`login_screen.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/screens/login_screen.dart), [`register_screen.dart`](file:///d:/vsXanh/football-field-booking/mobile_app/lib/screens/register_screen.dart)):**
+  - Giao diện form sáng sủa, các ô TextField nền xám nhạt viền focus xanh lá, nút đăng nhập xanh Emerald nổi bật.
 
-1. **Hiển thị tức thì:** Ảnh sân bóng trên Android Emulator và điện thoại thật tải ngay lập tức từ bộ nhớ Ram mà không bị lỗi trắng ảnh hay `Connection Refused`.
-2. **Độc lập hạ tầng:** Mang project sang bất kỳ máy tính nào chạy demo cũng không lo bị mất ảnh hay sai lệch IP Wi-Fi.
+---
+
+### Giai đoạn 10: Tinh Chỉnh Đồng Bộ Web Frontend React.js
+- [ ] **10.1. Kiểm tra tính đồng bộ màu sắc:**
+  - Đồng bộ tone màu xanh Emerald `#059669` và nền trắng sáng trên toàn bộ các trang React: `HomePage.jsx`, `StaffDashboard.jsx`, `AdminDashboard.jsx`.
+- [ ] **10.2. Kiểm tra độ tương phản font chữ:**
+  - Đảm bảo toàn bộ chữ trên nền sáng đạt chuẩn tương phản WCAG (dễ đọc cho cả ban ngày và đêm).
+
+---
+
+### Giai đoạn 11: Kiểm Thử Toàn Diện & Nghiệm Thu (Verification)
+- [ ] **11.1.** Test file `.env` trên Web: Đổi cổng API hoặc Base URL trong `frontend/.env` và xác nhận web kết nối đúng.
+- [ ] **11.2.** Test `flutter_dotenv` trên Mobile: Đổi Base URL trong `mobile_app/.env` và xác nhận app kết nối chuẩn xác.
+- [ ] **11.3.** Chạy Hot Restart ứng dụng Mobile: Kiểm tra toàn diện tất cả các màn hình ở chế độ Light Theme mới xem có bị lỗi màu chữ bị chìm hoặc viền méo không.
+- [ ] **11.4.** Cập nhật tài liệu kiến trúc và hướng dẫn trong thư mục `Guide/`.
+
+---
+
+## IV. TRÌNH TỰ THỰC HIỆN ĐỀ XUẤT
+
+```mermaid
+flowchart TD
+    Step1["1. Cấu hình .env Frontend Web (Vite React)"] --> Step2["2. Tích hợp flutter_dotenv cho Mobile App"]
+    Step2 --> Step3["3. Cập nhật AppColors sang Light Theme sáng sủa"]
+    Step3 --> Step4["4. Cập nhật toàn bộ màn hình Mobile sang giao diện sáng"]
+    Step4 --> Step5["5. Kiểm thử E2E & Hot Restart nghiệm thu"]
+```
+
+### Giai đoạn 10: Tinh Chỉnh Đồng Bộ Web Frontend React.js
+- [ ] **10.1. Kiểm tra tính đồng bộ màu sắc:**
+  - Đồng bộ tone màu xanh Emerald `#059669` và nền trắng sáng trên toàn bộ các trang React: `HomePage.jsx`, `StaffDashboard.jsx`, `AdminDashboard.jsx`.
+- [ ] **10.2. Kiểm tra độ tương phản font chữ:**
+  - Đảm bảo toàn bộ chữ trên nền sáng đạt chuẩn tương phản WCAG (dễ đọc cho cả ban ngày và đêm).
+
+---
+
+### Giai đoạn 11: Kiểm Thử Toàn Diện & Nghiệm Thu (Verification)
+- [ ] **11.1.** Test file `.env` trên Web: Đổi cổng API hoặc Base URL trong `frontend/.env` và xác nhận web kết nối đúng.
+- [ ] **11.2.** Test `flutter_dotenv` trên Mobile: Đổi Base URL trong `mobile_app/.env` và xác nhận app kết nối chuẩn xác.
+- [ ] **11.3.** Chạy Hot Restart ứng dụng Mobile: Kiểm tra toàn diện tất cả các màn hình ở chế độ Light Theme mới xem có bị lỗi màu chữ bị chìm hoặc viền méo không.
+- [ ] **11.4.** Cập nhật tài liệu kiến trúc và hướng dẫn trong thư mục `Guide/`.
+
+---
+
+## IV. TRÌNH TỰ THỰC HIỆN ĐỀ XUẤT
+
+```mermaid
+flowchart TD
+    Step1["1. Cấu hình .env Frontend Web (Vite React)"] --> Step2["2. Tích hợp flutter_dotenv cho Mobile App"]
+    Step2 --> Step3["3. Cập nhật AppColors sang Light Theme sáng sủa"]
+    Step3 --> Step4["4. Cập nhật toàn bộ màn hình Mobile sang giao diện sáng"]
+    Step4 --> Step5["5. Kiểm thử E2E & Hot Restart nghiệm thu"]
+```
+
