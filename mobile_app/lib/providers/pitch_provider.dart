@@ -17,7 +17,7 @@ class PitchProvider with ChangeNotifier {
 
   final Dio _dio = ApiClient().dio;
 
-  /// Tải danh sách sân bóng từ Backend
+  /// Tải danh sách sân bóng từ Backend (hỗ trợ lọc theo loại sân 5 hoặc 7)
   Future<void> fetchPitches({String? type}) async {
     _isLoading = true;
     _errorMessage = null;
@@ -30,7 +30,12 @@ class PitchProvider with ChangeNotifier {
 
       if (res.data['success'] == true) {
         final List list = res.data['data'] ?? [];
-        _pitches = list.map((item) => PitchModel.fromJson(item)).toList();
+        var mapped = list.map((item) => PitchModel.fromJson(item)).toList();
+        // Lọc an toàn tại client để đảm bảo chuẩn 100% không bị lẫn sân 5 vào sân 7
+        if (type != null && type.isNotEmpty && type != 'all') {
+          mapped = mapped.where((p) => p.type.toLowerCase().contains(type.toLowerCase())).toList();
+        }
+        _pitches = mapped;
       }
     } on DioException catch (e) {
       _errorMessage = e.error?.toString() ?? 'Lỗi tải danh sách sân bóng.';
@@ -62,4 +67,3 @@ class PitchProvider with ChangeNotifier {
     return null;
   }
 }
-

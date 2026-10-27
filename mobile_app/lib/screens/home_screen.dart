@@ -9,6 +9,8 @@ import '../core/constants.dart';
 import '../models/pitch_model.dart';
 import 'login_screen.dart';
 import 'pitch_detail_screen.dart';
+import 'booking_screen.dart';
+import '../widgets/app_image.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -58,20 +60,73 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (confirm == true && mounted) {
       await Provider.of<AuthProvider>(context, listen: false).logout();
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
     }
+  }
+
+  // Bấm nút Đặt Sân Ngay trên thẻ sân: Kiểm tra JWT Token
+  Future<void> _handleQuickBook(PitchModel pitch) async {
+    if (pitch.isMaintenance) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sân bóng này đang bảo trì, vui lòng chọn sân khác.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    if (!authProvider.isAuthenticated) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vui lòng đăng nhập để tiến hành đặt sân'),
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      final loggedIn = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => LoginScreen(
+            onSuccess: () {
+              Navigator.of(context).pop(true);
+            },
+          ),
+        ),
+      );
+
+      if (loggedIn == true && mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => BookingScreen(pitch: pitch),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Đã có Token: Chuyển thẳng sang trang Chọn giờ & Đặt sân
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BookingScreen(pitch: pitch),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
     final pitchProvider = Provider.of<PitchProvider>(context);
-    final user = authProvider.user;
-
     final currencyFormatter = NumberFormat.currency(locale: 'vi_VN', symbol: 'đ');
+
+    // Lọc danh sách sân chính xác 100% theo loại sân (không lẫn sân 5 và sân 7)
+    final filteredPitches = pitchProvider.pitches.where((p) {
+      if (_selectedFilter == 'all') return true;
+      if (_selectedFilter == '5') return p.type.toLowerCase().contains('5');
+      if (_selectedFilter == '7') return p.type.toLowerCase().contains('7');
+      return true;
+    }).toList();
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -80,36 +135,52 @@ class _HomeScreenState extends State<HomeScreen> {
         elevation: 0,
         title: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.2),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.sports_soccer, color: AppColors.primary, size: 22),
-            ),
-            const SizedBox(width: 10),
+            const Icon(Icons.sports_soccer, color: AppColors.primary, size: 28),
+            const SizedBox(width: 8),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'SÂN BÓNG ĐÁ',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                  'Sân Bóng Cỏ Nhân Tạo',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
                 ),
                 Text(
-                  user != null ? 'Chào, ${user.fullName}' : 'Đặt sân nhanh chóng',
-                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                  authProvider.isAuthenticated
+                      ? 'Xin chào, ${authProvider.user?.fullName ?? "Thành viên"}'
+                      : 'Khách vãng lai (Chưa đăng nhập)',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textSecondary,
+                  ),
                 ),
               ],
             ),
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout, color: AppColors.textSecondary),
-            tooltip: 'Đăng xuất',
-            onPressed: _handleLogout,
-          ),
+          if (authProvider.isAuthenticated)
+            IconButton(
+              icon: const Icon(Icons.logout, color: AppColors.danger, size: 22),
+              tooltip: 'Đăng xuất',
+              onPressed: _handleLogout,
+            )
+          else
+            TextButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                );
+              },
+              icon: const Icon(Icons.login, size: 18, color: AppColors.primary),
+              label: const Text(
+                'Đăng nhập',
+                style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold),
+              ),
+            ),
         ],
       ),
       body: RefreshIndicator(
@@ -117,13 +188,13 @@ class _HomeScreenState extends State<HomeScreen> {
         color: AppColors.primary,
         child: Column(
           children: [
-            // Bộ lọc loại sân
+            // Thanh lọc loại sân / chi nhánh
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               color: AppColors.surface.withValues(alpha: 0.5),
               child: Row(
                 children: [
-                  _buildFilterChip('Tất cả sân', 'all'),
+                  _buildFilterChip('Toàn hệ thống', 'all'),
                   const SizedBox(width: 8),
                   _buildFilterChip('Sân 5 người', '5'),
                   const SizedBox(width: 8),
@@ -163,18 +234,29 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                         )
-                      : pitchProvider.pitches.isEmpty
-                          ? const Center(
-                              child: Text(
-                                'Hiện không có sân bóng nào.',
-                                style: TextStyle(color: AppColors.textSecondary),
+                      : filteredPitches.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.sports_soccer, size: 48, color: AppColors.textMuted),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    _selectedFilter == '7'
+                                        ? 'Hiện chưa có sân 7 người nào.'
+                                        : _selectedFilter == '5'
+                                            ? 'Hiện chưa có sân 5 người nào.'
+                                            : 'Hiện không tìm thấy sân bóng nào phù hợp.',
+                                    style: const TextStyle(color: AppColors.textSecondary),
+                                  ),
+                                ],
                               ),
                             )
                           : ListView.builder(
                               padding: const EdgeInsets.all(16),
-                              itemCount: pitchProvider.pitches.length,
+                              itemCount: filteredPitches.length,
                               itemBuilder: (ctx, index) {
-                                final pitch = pitchProvider.pitches[index];
+                                final pitch = filteredPitches[index];
                                 return _buildPitchCard(pitch, currencyFormatter);
                               },
                             ),
@@ -212,6 +294,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildPitchCard(PitchModel pitch, NumberFormat formatter) {
     final imageUrl = ApiConstants.formatImageUrl(pitch.image);
+    final typeBadge = pitch.type.toLowerCase().contains('7') ? 'SÂN 7 NGƯỜI' : 'SÂN 5 NGƯỜI';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -231,6 +314,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
           onTap: () {
+            // Khách vãng lai bấm vào card để xem chi tiết sân tự do
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => PitchDetailScreen(pitchId: pitch.id),
@@ -240,46 +324,35 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Hình ảnh sân
+              // Ảnh bìa sân
               Stack(
                 children: [
-                  ClipRRect(
+                  AppImage(
+                    imageUrl: pitch.image,
+                    height: 170,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                    child: CachedNetworkImage(
-                      imageUrl: imageUrl,
-                      height: 170,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      placeholder: (ctx, url) => Container(
-                        height: 170,
-                        color: AppColors.surfaceLight,
-                        child: const Center(
-                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
-                        ),
-                      ),
-                      errorWidget: (ctx, url, err) => Container(
-                        height: 170,
-                        color: AppColors.surfaceLight,
-                        child: const Icon(Icons.image_not_supported, size: 40, color: AppColors.textMuted),
-                      ),
-                    ),
                   ),
 
-                  // Tag loại sân (Sân 5 / Sân 7)
+                  // Tag loại sân chuẩn xác (SÂN 5 NGƯỜI hoặc SÂN 7 NGƯỜI)
                   Positioned(
                     top: 12,
                     left: 12,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.75),
+                        color: Colors.black.withValues(alpha: 0.8),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.primaryLight, width: 1),
+                        border: Border.all(
+                          color: pitch.type.toLowerCase().contains('7') ? Colors.cyanAccent : AppColors.primaryLight,
+                          width: 1.2,
+                        ),
                       ),
                       child: Text(
-                        'SÂN ${pitch.type} NGƯỜI',
-                        style: const TextStyle(
-                          color: Colors.white,
+                        typeBadge,
+                        style: TextStyle(
+                          color: pitch.type.toLowerCase().contains('7') ? Colors.cyanAccent : Colors.white,
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                         ),
@@ -311,7 +384,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
 
-              // Thông tin sân
+              // Thông tin sân & nút thao tác
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
@@ -351,9 +424,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
 
-                    // Giá sân và nút xem
+                    // Giá tiền và nút Đặt Sân Ngay
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -376,22 +449,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
+                            backgroundColor: pitch.isMaintenance ? Colors.grey.shade700 : AppColors.primary,
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10),
                             ),
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                           ),
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => PitchDetailScreen(pitchId: pitch.id),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.calendar_month, size: 16),
-                          label: const Text('Xem & Đặt sân', style: TextStyle(fontWeight: FontWeight.bold)),
+                          onPressed: () => _handleQuickBook(pitch),
+                          icon: const Icon(Icons.flash_on, size: 16),
+                          label: const Text('Đặt Sân Ngay', style: TextStyle(fontWeight: FontWeight.bold)),
                         ),
                       ],
                     ),

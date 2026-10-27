@@ -21,6 +21,12 @@ function AdminDashboard() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [filterByDate, setFilterByDate] = useState(false);
 
+  // BỘ LỌC DOANH THU THEO THỜI GIAN (QUICK REVENUE CARDS): 'today' | 'day' | 'month' | 'year' | 'all'
+  const [revenueFilterMode, setRevenueFilterMode] = useState('today');
+  const [revCustomDate, setRevCustomDate] = useState(new Date().toISOString().split('T')[0]);
+  const [revSelectedMonth, setRevSelectedMonth] = useState(new Date().getMonth() + 1);
+  const [revSelectedYear, setRevSelectedYear] = useState(new Date().getFullYear());
+
   // Bộ lọc và tìm kiếm thao tác đơn nhanh cho Admin
   const [bookingFilterStatus, setBookingFilterStatus] = useState('all');
   const [bookingSearch, setBookingSearch] = useState('');
@@ -125,6 +131,65 @@ function AdminDashboard() {
       fetchReviews();
     } catch (err) {
       console.error('Lỗi tải dữ liệu admin:', err);
+    }
+  };
+
+  // TÍNH TOÁN DOANH THU & CHỈ SỐ THEO BỘ LỌC (HÔM NAY / THEO NGÀY / THEO THÁNG / THEO NĂM / TẤT CẢ)
+  const filteredRevenueStats = React.useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const monthPrefix = `${revSelectedYear}-${String(revSelectedMonth).padStart(2, '0')}`;
+    const yearPrefix = `${revSelectedYear}-`;
+
+    let rev = 0;
+    let count = 0;
+    let completed = 0;
+
+    for (const b of allBookings) {
+      const bDate = (b.booking_date || '').split('T')[0];
+      const status = (b.status || '').toLowerCase();
+      const price = Number(b.total_price) || 0;
+
+      let match = false;
+      if (revenueFilterMode === 'today') {
+        match = (bDate === todayStr);
+      } else if (revenueFilterMode === 'day') {
+        match = (bDate === revCustomDate);
+      } else if (revenueFilterMode === 'month') {
+        match = bDate.startsWith(monthPrefix);
+      } else if (revenueFilterMode === 'year') {
+        match = bDate.startsWith(yearPrefix);
+      } else if (revenueFilterMode === 'all') {
+        match = true;
+      }
+
+      if (match) {
+        count++;
+        if (status === 'completed') {
+          completed++;
+        }
+        if (status !== 'cancelled') {
+          rev += price;
+        }
+      }
+    }
+
+    const avg = count > 0 ? Math.round(rev / count) : 0;
+    return { revenue: rev, count, completed, avg };
+  }, [allBookings, revenueFilterMode, revCustomDate, revSelectedMonth, revSelectedYear]);
+
+  const getRevFilterLabel = () => {
+    switch (revenueFilterMode) {
+      case 'today':
+        return `Hôm nay (${new Date().toLocaleDateString('vi-VN')})`;
+      case 'day':
+        return `Ngày ${new Date(revCustomDate).toLocaleDateString('vi-VN')}`;
+      case 'month':
+        return `Tháng ${String(revSelectedMonth).padStart(2, '0')}/${revSelectedYear}`;
+      case 'year':
+        return `Năm ${revSelectedYear}`;
+      case 'all':
+      default:
+        return 'Toàn bộ thời gian';
     }
   };
 
@@ -799,26 +864,224 @@ function AdminDashboard() {
         {/* TAB 1: OVERVIEW */}
         {activeTab === 'overview' && (
           <div>
-            <div className="stats-grid">
-              <div className="stat-box">
-                <div className="stat-icon" style={{ background: '#ecfdf5', color: '#059669' }}>💰</div>
+            {/* KHU VỰC THẺ TÓM TẮT DOANH SỐ CÓ BỘ LỌC THỜI GIAN (QUICK REVENUE CARDS) */}
+            <div className="panel-card" style={{ marginBottom: '24px', padding: '20px 24px', background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '12px',
+                marginBottom: '16px'
+              }}>
                 <div>
-                  <div className="stat-label">Doanh Thu Tiền Sân</div>
-                  <div className="stat-num">{stats.totalRevenue.toLocaleString('vi-VN')} đ</div>
+                  <h3 className="panel-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '18px' }}>📊 Tóm Tắt Doanh Số & Hiệu Suất</span>
+                    <span style={{
+                      fontSize: '12px',
+                      background: '#ecfdf5',
+                      color: '#059669',
+                      padding: '4px 12px',
+                      borderRadius: '20px',
+                      fontWeight: 'bold',
+                      border: '1px solid #a7f3d0'
+                    }}>
+                      {getRevFilterLabel()}
+                    </span>
+                  </h3>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
+                    Bộ lọc tính toán doanh thu động theo từng ngày, tháng, năm hoặc toàn thời gian
+                  </p>
+                </div>
+
+                {/* CÁC NÚT CHỌN CHẾ ĐỘ LỌC */}
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {[
+                    { id: 'today', label: '📅 Hôm nay' },
+                    { id: 'day', label: '🗓️ Theo Ngày' },
+                    { id: 'month', label: '📆 Theo Tháng' },
+                    { id: 'year', label: '📈 Theo Năm' },
+                    { id: 'all', label: '🌐 Tất Cả' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setRevenueFilterMode(tab.id)}
+                      style={{
+                        padding: '7px 14px',
+                        fontSize: '12px',
+                        borderRadius: '20px',
+                        border: revenueFilterMode === tab.id ? '1.5px solid #059669' : '1px solid #cbd5e1',
+                        background: revenueFilterMode === tab.id ? '#059669' : '#ffffff',
+                        color: revenueFilterMode === tab.id ? '#ffffff' : '#334155',
+                        fontWeight: revenueFilterMode === tab.id ? 'bold' : '500',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
               </div>
-              <div className="stat-box">
-                <div className="stat-icon" style={{ background: '#eff6ff', color: '#2563eb' }}>📅</div>
-                <div>
-                  <div className="stat-label">Tổng Lượt Đặt</div>
-                  <div className="stat-num">{stats.totalBookings}</div>
+
+              {/* BỘ CHỌN CHI TIẾT KHI CHỌN THEO NGÀY / THÁNG / NĂM */}
+              {(revenueFilterMode === 'day' || revenueFilterMode === 'month' || revenueFilterMode === 'year') && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  background: '#f8fafc',
+                  padding: '10px 14px',
+                  borderRadius: '10px',
+                  border: '1px dashed #cbd5e1',
+                  marginBottom: '16px',
+                  flexWrap: 'wrap'
+                }}>
+                  {revenueFilterMode === 'day' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#334155' }}>Chọn ngày cần xem:</span>
+                      <input
+                        type="date"
+                        value={revCustomDate}
+                        onChange={(e) => setRevCustomDate(e.target.value)}
+                        style={{
+                          padding: '6px 10px',
+                          fontSize: '13px',
+                          borderRadius: '6px',
+                          border: '1.5px solid #059669',
+                          outline: 'none',
+                          color: '#064e3b',
+                          fontWeight: 'bold',
+                          background: '#ffffff'
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {revenueFilterMode === 'month' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#334155' }}>Chọn tháng & năm:</span>
+                      <select
+                        value={revSelectedMonth}
+                        onChange={(e) => setRevSelectedMonth(Number(e.target.value))}
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '13px',
+                          borderRadius: '6px',
+                          border: '1.5px solid #059669',
+                          background: '#ffffff',
+                          fontWeight: 'bold',
+                          color: '#064e3b'
+                        }}
+                      >
+                        {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                          <option key={m} value={m}>Tháng {m}</option>
+                        ))}
+                      </select>
+
+                      <select
+                        value={revSelectedYear}
+                        onChange={(e) => setRevSelectedYear(Number(e.target.value))}
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '13px',
+                          borderRadius: '6px',
+                          border: '1.5px solid #059669',
+                          background: '#ffffff',
+                          fontWeight: 'bold',
+                          color: '#064e3b'
+                        }}
+                      >
+                        {[2023, 2024, 2025, 2026, 2027, 2028].map(y => (
+                          <option key={y} value={y}>Năm {y}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {revenueFilterMode === 'year' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#334155' }}>Chọn năm:</span>
+                      <select
+                        value={revSelectedYear}
+                        onChange={(e) => setRevSelectedYear(Number(e.target.value))}
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '13px',
+                          borderRadius: '6px',
+                          border: '1.5px solid #059669',
+                          background: '#ffffff',
+                          fontWeight: 'bold',
+                          color: '#064e3b'
+                        }}
+                      >
+                        {[2023, 2024, 2025, 2026, 2027, 2028].map(y => (
+                          <option key={y} value={y}>Năm {y}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <span style={{ fontSize: '12px', color: '#64748b' }}>
+                    (Tìm thấy <strong>{filteredRevenueStats.count}</strong> đơn đặt trong kỳ được chọn)
+                  </span>
+                </div>
+              )}
+
+              {/* LƯỚI 4 THẺ THỐNG KÊ DOANH SỐ ĐỘNG */}
+              <div className="stats-grid" style={{ marginBottom: '16px' }}>
+                <div className="stat-box" style={{ borderLeft: '4px solid #059669' }}>
+                  <div className="stat-icon" style={{ background: '#ecfdf5', color: '#059669' }}>💰</div>
+                  <div>
+                    <div className="stat-label">Doanh Thu ({revenueFilterMode === 'today' ? 'Hôm Nay' : revenueFilterMode === 'all' ? 'Toàn Bộ' : 'Kỳ Chọn'})</div>
+                    <div className="stat-num" style={{ color: '#059669' }}>{filteredRevenueStats.revenue.toLocaleString('vi-VN')} đ</div>
+                  </div>
+                </div>
+
+                <div className="stat-box" style={{ borderLeft: '4px solid #2563eb' }}>
+                  <div className="stat-icon" style={{ background: '#eff6ff', color: '#2563eb' }}>📅</div>
+                  <div>
+                    <div className="stat-label">Tổng Lượt Đặt</div>
+                    <div className="stat-num" style={{ color: '#2563eb' }}>{filteredRevenueStats.count} lượt</div>
+                  </div>
+                </div>
+
+                <div className="stat-box" style={{ borderLeft: '4px solid #0d9488' }}>
+                  <div className="stat-icon" style={{ background: '#f0fdfa', color: '#0d9488' }}>🏁</div>
+                  <div>
+                    <div className="stat-label">Trận Đã Hoàn Tất</div>
+                    <div className="stat-num" style={{ color: '#0d9488' }}>{filteredRevenueStats.completed} trận</div>
+                  </div>
+                </div>
+
+                <div className="stat-box" style={{ borderLeft: '4px solid #7c3aed' }}>
+                  <div className="stat-icon" style={{ background: '#f5f3ff', color: '#7c3aed' }}>📈</div>
+                  <div>
+                    <div className="stat-label">Doanh Thu TB / Lượt</div>
+                    <div className="stat-num" style={{ color: '#7c3aed' }}>{filteredRevenueStats.avg.toLocaleString('vi-VN')} đ</div>
+                  </div>
                 </div>
               </div>
-              <div className="stat-box">
-                <div className="stat-icon" style={{ background: '#fffbeb', color: '#f59e0b' }}>⏳</div>
+
+              {/* THANH TỔNG QUAN TÍCH LŨY TOÀN HỆ THỐNG */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '10px 16px',
+                background: '#f8fafc',
+                borderRadius: '8px',
+                fontSize: '12px',
+                color: '#64748b',
+                flexWrap: 'wrap',
+                gap: '8px'
+              }}>
                 <div>
-                  <div className="stat-label">Đơn Chờ Duyệt</div>
-                  <div className="stat-num">{stats.pendingCount}</div>
+                  🌐 <strong>Tổng doanh thu tích lũy toàn hệ thống:</strong> <span style={{ color: '#059669', fontWeight: 'bold' }}>{stats.totalRevenue.toLocaleString('vi-VN')} đ</span> ({stats.totalBookings} lượt đặt)
+                </div>
+                <div>
+                  ⏳ <strong>Đơn chờ duyệt:</strong> <span style={{ color: stats.pendingCount > 0 ? '#d97706' : '#64748b', fontWeight: 'bold' }}>{stats.pendingCount} đơn</span>
                 </div>
               </div>
             </div>

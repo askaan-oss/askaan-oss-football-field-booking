@@ -3,10 +3,13 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../core/app_colors.dart';
+import '../providers/auth_provider.dart';
 import '../providers/pitch_provider.dart';
 import '../core/constants.dart';
 import '../models/pitch_model.dart';
 import 'booking_screen.dart';
+import '../widgets/app_image.dart';
+import 'login_screen.dart';
 
 class PitchDetailScreen extends StatefulWidget {
   final int pitchId;
@@ -25,6 +28,61 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<PitchProvider>(context, listen: false).fetchPitchDetail(widget.pitchId);
     });
+  }
+
+  // Xử lý nút Bấm Đặt Sân Ngay (Kiểm tra JWT Token)
+  Future<void> _handleBookNow(PitchModel pitch) async {
+    if (pitch.isMaintenance) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sân này đang tạm ngừng hoạt động để bảo trì cỏ và dàn đèn.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    // 1. Nếu khách vãng lai chưa có JWT token đăng nhập
+    if (!authProvider.isAuthenticated) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vui lòng đăng nhập để tiến hành chọn giờ & đặt sân'),
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      // Chuyển sang màn hình Đăng nhập
+      final loggedIn = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => LoginScreen(
+            onSuccess: () {
+              Navigator.of(context).pop(true);
+            },
+          ),
+        ),
+      );
+
+      // Nếu đăng nhập thành công, tự động mở tiếp màn hình Đặt sân
+      if (loggedIn == true && mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => BookingScreen(pitch: pitch),
+          ),
+        );
+      }
+      return;
+    }
+
+    // 2. Nếu đã có JWT token đăng nhập -> Mở ngay màn hình Chọn giờ & Đặt sân
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BookingScreen(pitch: pitch),
+      ),
+    );
   }
 
   @override
@@ -63,7 +121,7 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Gallery ảnh mô tả sân
+            // Gallery ảnh mô tả sân (Ảnh đại diện chính + Album ảnh chi tiết)
             if (allImages.isNotEmpty) ...[
               SizedBox(
                 height: 240,
@@ -75,21 +133,12 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
                     });
                   },
                   itemBuilder: (ctx, idx) {
-                    final imgUrl = ApiConstants.formatImageUrl(allImages[idx]);
-                    return CachedNetworkImage(
+                    final imgUrl = allImages[idx];
+                    return AppImage(
                       imageUrl: imgUrl,
                       fit: BoxFit.cover,
                       width: double.infinity,
-                      placeholder: (ctx, url) => Container(
-                        color: AppColors.surfaceLight,
-                        child: const Center(
-                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
-                        ),
-                      ),
-                      errorWidget: (ctx, url, err) => Container(
-                        color: AppColors.surfaceLight,
-                        child: const Icon(Icons.image_not_supported, size: 50, color: AppColors.textMuted),
-                      ),
+                      height: 240,
                     );
                   },
                 ),
@@ -115,6 +164,13 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
                     ),
                   ),
                 ),
+            ] else ...[
+              const AppImage(
+                imageUrl: null,
+                width: double.infinity,
+                height: 220,
+                fit: BoxFit.cover,
+              ),
             ],
 
             Padding(
@@ -283,20 +339,12 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
           height: 50,
           child: ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
+              backgroundColor: pitch.isMaintenance ? Colors.grey.shade700 : AppColors.primary,
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            onPressed: pitch.isMaintenance
-                ? null
-                : () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => BookingScreen(pitch: pitch),
-                      ),
-                    );
-                  },
-            icon: const Icon(Icons.flash_on),
+            onPressed: () => _handleBookNow(pitch),
+            icon: Icon(pitch.isMaintenance ? Icons.handyman : Icons.flash_on),
             label: Text(
               pitch.isMaintenance ? 'SÂN ĐANG BẢO TRÌ' : 'ĐẶT SÂN NGAY',
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
@@ -353,4 +401,3 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
     );
   }
 }
-

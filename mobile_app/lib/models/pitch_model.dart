@@ -89,9 +89,9 @@ class PitchModel {
       priceDefault: double.tryParse(json['price_default']?.toString() ?? '0') ?? 0.0,
       status: json['status'] ?? 'active',
       description: json['description'],
-      image: json['image'],
-      averageRating: double.tryParse(json['average_rating']?.toString() ?? '5.0') ?? 5.0,
-      reviewCount: int.tryParse(json['review_count']?.toString() ?? '0') ?? 0,
+      image: json['avatar_url'] ?? json['image'] ?? json['avatar'],
+      averageRating: double.tryParse((json['rating_stats']?['average_rating'] ?? json['average_rating'])?.toString() ?? '5.0') ?? 5.0,
+      reviewCount: int.tryParse((json['rating_stats']?['total_reviews'] ?? json['total_reviews'] ?? json['review_count'])?.toString() ?? '0') ?? 0,
       images: imagesList,
       reviews: reviewsList,
     );

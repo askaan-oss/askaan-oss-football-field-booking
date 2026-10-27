@@ -1,9 +1,12 @@
 const pool = require('../config/db');
+const jwt = require('jsonwebtoken');
+const fs = require('fs');
 
 // 1. Lấy danh sách toàn bộ các sân bóng kèm điểm đánh giá sao
 async function getAllPitches(req, res) {
   try {
     const showAll = req.query.all === 'true';
+    const pitchType = req.query.type;
     let query = `
       SELECT 
         p.id, 
@@ -12,14 +15,22 @@ async function getAllPitches(req, res) {
         p.price_default, 
         p.status, 
         p.avatar_url,
+        p.avatar_url AS image,
         COALESCE(ROUND(AVG(r.rating), 1), 5.0) AS average_rating,
         COUNT(r.id) AS total_reviews
       FROM pitches p
-      LEFT JOIN reviews r ON p.id = r.pitch_id
+      LEFT JOIN pitch_reviews r ON p.id = r.pitch_id
+      WHERE 1=1
     `;
+    const params = [];
 
     if (!showAll) {
-      query += ` WHERE p.status = 'active'`;
+      query += ` AND p.status = 'active'`;
+    }
+
+    if (pitchType && pitchType !== 'all') {
+      query += ` AND p.type LIKE ?`;
+      params.push(`%${pitchType}%`);
     }
 
     query += `
@@ -27,7 +38,7 @@ async function getAllPitches(req, res) {
       ORDER BY p.id ASC
     `;
 
-    const [rows] = await pool.query(query);
+    const [rows] = await pool.query(query, params);
 
     return res.status(200).json({
       success: true,
@@ -84,6 +95,7 @@ async function getPitchById(req, res) {
 
     const pitchData = {
       ...pitchRows[0],
+      image: pitchRows[0].avatar_url,
       images: imageRows, // Danh sách ảnh mô tả kèm id, image_url, caption
       gallery_urls: imageRows.map(img => img.image_url),
       reviews: reviewRows, // Danh sách review
@@ -135,10 +147,16 @@ async function createPitch(req, res) {
       });
     }
 
-    // Nếu người dùng upload file từ máy thì lấy đường dẫn tĩnh, ngược lại dùng ảnh mặc định
-    let avatarUrl = 'https://images.unsplash.com/photo-1529900748604-07564a03e7a6?w=800';
+    // Chuyển đổi ảnh upload trực tiếp sang Base64 Data URI để mobile và web load tức thì
+    let avatarUrl = req.body.avatar_url || 'https://images.unsplash.com/photo-1529900748604-07564a03e7a6?w=800';
     if (req.file) {
-      avatarUrl = `http://localhost:5000/uploads/pitches/${req.file.filename}`;
+      try {
+        const mimeType = req.file.mimetype || 'image/jpeg';
+        const fileBuffer = fs.readFileSync(req.file.path);
+        avatarUrl = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+      } catch (e) {
+        avatarUrl = `http://localhost:5000/uploads/pitches/${req.file.filename}`;
+      }
     }
 
     const [result] = await pool.query(
@@ -299,7 +317,15 @@ async function updatePitch(req, res) {
 
     let avatarUrl = existing[0].avatar_url;
     if (req.file) {
-      avatarUrl = `http://localhost:5000/uploads/pitches/${req.file.filename}`;
+      try {
+        const mimeType = req.file.mimetype || 'image/jpeg';
+        const fileBuffer = fs.readFileSync(req.file.path);
+        avatarUrl = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+      } catch (e) {
+        avatarUrl = `http://localhost:5000/uploads/pitches/${req.file.filename}`;
+      }
+    } else if (req.body.avatar_url) {
+      avatarUrl = req.body.avatar_url;
     }
 
     await pool.query(
@@ -339,7 +365,13 @@ async function addPitchImage(req, res) {
 
     let imageUrl = req.body.image_url;
     if (req.file) {
-      imageUrl = `http://localhost:5000/uploads/pitches/${req.file.filename}`;
+      try {
+        const mimeType = req.file.mimetype || 'image/jpeg';
+        const fileBuffer = fs.readFileSync(req.file.path);
+        imageUrl = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+      } catch (e) {
+        imageUrl = `http://localhost:5000/uploads/pitches/${req.file.filename}`;
+      }
     }
 
     if (!imageUrl) {
@@ -397,21 +429,44 @@ async function deletePitchImage(req, res) {
 async function addPitchReview(req, res) {
   try {
     const pitchId = req.params.id;
-    const { customer_name, customer_phone, rating, comment } = req.body;
+    let { customer_name, customer_phone, rating, comment } = req.body;
 
-    if (!customer_name || !rating) {
-      return res.status(400).json({
-        success: false,
-        message: 'Vui lòng cung cấp tên người đánh giá và số sao (1 - 5).'
-      });
+    // Nếu không truyền customer_name từ body, thử lấy từ JWT Bearer token nếu có
+    if ((!customer_name || customer_name.trim() === '') && req.headers['authorization']) {
+      try {
+        const authHeader = req.headers['authorization'];
+        const token = authHeader && authHeader.split(' ')[1];
+        if (token) {
+          const decoded = jwt.verify(
+            token,
+            process.env.JWT_SECRET || 'do_an_tot_nghiep_san_bong_secret_key_2026'
+          );
+          if (decoded && decoded.role === 'customer') {
+            const [cust] = await pool.query('SELECT full_name, phone FROM customers WHERE id = ?', [decoded.id]);
+            if (cust.length > 0) {
+              customer_name = cust[0].full_name || cust[0].phone;
+              customer_phone = customer_phone || cust[0].phone;
+            }
+          } else if (decoded && decoded.username) {
+            customer_name = decoded.username;
+          }
+        }
+      } catch (err) {
+        // Token không giải mã được hoặc hết hạn, bỏ qua
+      }
     }
+
+    if (!customer_name || customer_name.trim() === '') {
+      customer_name = 'Khách hàng';
+    }
+
+    const star = Math.min(5, Math.max(1, Number(rating) || 5));
 
     const [existing] = await pool.query('SELECT id FROM pitches WHERE id = ?', [pitchId]);
     if (existing.length === 0) {
       return res.status(404).json({ success: false, message: 'Sân bóng không tồn tại.' });
     }
 
-    const star = Math.min(5, Math.max(1, Number(rating)));
 
     const [result] = await pool.query(
       'INSERT INTO pitch_reviews (pitch_id, customer_name, customer_phone, rating, comment) VALUES (?, ?, ?, ?, ?)',

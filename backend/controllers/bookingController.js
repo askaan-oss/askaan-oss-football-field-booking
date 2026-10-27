@@ -7,11 +7,11 @@ function timeToMinutes(timeStr) {
 }
 
 // Hàm bổ trợ: Tính toán giá tiền theo từng block 30 phút dựa vào hệ số ca thực tế (áp dụng weekend_multiplier nếu rơi vào T7 hoặc Chủ Nhật)
-async function calculateBookingPrice(pitchId, startTimeStr, endTimeStr, bookingDateStr) {
+async function calculateBookingPrice(pitchId, startTimeStr, endTimeStr, bookingDateStr, connection = pool) {
   const startMin = timeToMinutes(startTimeStr);
   const endMin = timeToMinutes(endTimeStr);
 
-  const [pitchRows] = await pool.query('SELECT price_default FROM pitches WHERE id = ?', [pitchId]);
+  const [pitchRows] = await connection.query('SELECT price_default FROM pitches WHERE id = ?', [pitchId]);
   if (pitchRows.length === 0) return null;
   const basePricePerHour = Number(pitchRows[0].price_default);
   const pricePer30Min = basePricePerHour / 2;
@@ -26,7 +26,7 @@ async function calculateBookingPrice(pitchId, startTimeStr, endTimeStr, bookingD
   }
 
   // Lấy danh sách quy định 4 ca (bao gồm cả price_multiplier và weekend_multiplier)
-  const [rules] = await pool.query('SELECT start_time, end_time, price_multiplier, weekend_multiplier FROM time_slot_rules');
+  const [rules] = await connection.query('SELECT start_time, end_time, price_multiplier, weekend_multiplier FROM time_slot_rules');
 
   let totalPrice = 0;
   let cur = startMin;
@@ -55,7 +55,7 @@ async function calculateBookingPrice(pitchId, startTimeStr, endTimeStr, bookingD
 }
 
 // Kiểm tra 5 Business Rules: BR-BOOKING-01 -> BR-BOOKING-05
-async function validateBookingRules({ pitch_id, booking_date, start_time, end_time }) {
+async function validateBookingRules({ pitch_id, booking_date, start_time, end_time }, connection = pool) {
   // BR-BOOKING-01: Không cho phép đặt sân trong quá khứ
   const [startH, startM] = start_time.split(':').map(Number);
   const [bYear, bMonth, bDay] = booking_date.split('-').map(Number);
@@ -119,7 +119,7 @@ async function validateBookingRules({ pitch_id, booking_date, start_time, end_ti
   }
 
   // BR-BOOKING-04: Không cho phép booking trùng thời gian với booking đã tồn tại
-  const [conflict] = await pool.query(
+  const [conflict] = await connection.query(
     `SELECT id FROM bookings 
      WHERE pitch_id = ? 
        AND booking_date = ? 
@@ -135,7 +135,7 @@ async function validateBookingRules({ pitch_id, booking_date, start_time, end_ti
       isValid: false,
       status: 409,
       code: 'BR-BOOKING-04',
-      message: '[BR-BOOKING-04] Không cho phép booking trùng thời gian với booking đã tồn tại trên hệ thống.'
+      message: '[BR-BOOKING-04] Khung giờ này vừa có khách hàng khác nhanh tay đặt trước. Vui lòng chọn khung giờ khác!'
     };
   }
 
@@ -253,50 +253,58 @@ async function checkAvailability(req, res) {
   }
 }
 
-// 2. Khách hàng đặt sân trực tuyến
+// 2. Khách hàng đặt sân trực tuyến (Áp dụng MySQL Transaction + FOR UPDATE chống Race Condition / Double Booking)
 async function createOnlineBooking(req, res) {
-  try {
-    let { pitch_id, booking_date, start_time, end_time, customer_name, customer_phone, note } = req.body;
-    const customerId = req.user ? req.user.id : null;
+  let { pitch_id, booking_date, start_time, end_time, customer_name, customer_phone, note } = req.body;
+  const customerId = req.user ? req.user.id : null;
 
-    // Tự động trích xuất thông tin khách hàng đã đăng nhập nếu client không gửi kèm
-    if ((!customer_name || !customer_phone) && req.user) {
-      if (req.user.role === 'customer') {
-        const [cRows] = await pool.query('SELECT full_name, phone FROM customers WHERE id = ?', [req.user.id]);
-        if (cRows.length > 0) {
-          customer_name = customer_name || cRows[0].full_name;
-          customer_phone = customer_phone || cRows[0].phone;
-        }
-      } else {
-        const [uRows] = await pool.query('SELECT full_name, username FROM users WHERE id = ?', [req.user.id]);
-        if (uRows.length > 0) {
-          customer_name = customer_name || uRows[0].full_name;
-          customer_phone = customer_phone || uRows[0].username;
-        }
+  // Tự động trích xuất thông tin khách hàng đã đăng nhập nếu client không gửi kèm
+  if ((!customer_name || !customer_phone) && req.user) {
+    if (req.user.role === 'customer') {
+      const [cRows] = await pool.query('SELECT full_name, phone FROM customers WHERE id = ?', [req.user.id]);
+      if (cRows.length > 0) {
+        customer_name = customer_name || cRows[0].full_name;
+        customer_phone = customer_phone || cRows[0].phone;
+      }
+    } else {
+      const [uRows] = await pool.query('SELECT full_name, username FROM users WHERE id = ?', [req.user.id]);
+      if (uRows.length > 0) {
+        customer_name = customer_name || uRows[0].full_name;
+        customer_phone = customer_phone || uRows[0].username;
       }
     }
+  }
 
-    if (!pitch_id || !booking_date || !start_time || !end_time || !customer_name || !customer_phone) {
-      return res.status(400).json({
-        success: false,
-        message: 'Vui lòng cung cấp đầy đủ: Sân, Ngày đá, Giờ bắt đầu, Giờ kết thúc, Tên và SĐT.'
-      });
-    }
+  if (!pitch_id || !booking_date || !start_time || !end_time || !customer_name || !customer_phone) {
+    return res.status(400).json({
+      success: false,
+      message: 'Vui lòng cung cấp đầy đủ: Sân, Ngày đá, Giờ bắt đầu, Giờ kết thúc, Tên và SĐT.'
+    });
+  }
 
-    const [pitchCheck] = await pool.query('SELECT status FROM pitches WHERE id = ?', [pitch_id]);
+  // Khởi tạo Transaction với khóa Pessimistic Locking (FOR UPDATE)
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // 1. Khóa hàng của sân bóng trong thời gian transaction để tuần tự hóa các request đặt cùng lúc
+    const [pitchCheck] = await conn.query('SELECT id, status FROM pitches WHERE id = ? FOR UPDATE', [pitch_id]);
     if (pitchCheck.length === 0) {
+      await conn.rollback();
       return res.status(404).json({ success: false, message: 'Sân bóng không tồn tại.' });
     }
     if (pitchCheck[0].status === 'maintenance') {
+      await conn.rollback();
       return res.status(400).json({
         success: false,
         message: 'Sân này đang trong thời gian bảo trì, không thể nhận lịch đặt!'
       });
     }
 
-    // Kiểm tra toàn bộ 5 quy tắc nghiệp vụ BR-BOOKING-01 -> BR-BOOKING-05
-    const ruleCheck = await validateBookingRules({ pitch_id, booking_date, start_time, end_time });
+    // 2. Kiểm tra toàn bộ 5 quy tắc nghiệp vụ BR-BOOKING-01 -> BR-BOOKING-05 với connection đang giữ lock
+    const ruleCheck = await validateBookingRules({ pitch_id, booking_date, start_time, end_time }, conn);
     if (!ruleCheck.isValid) {
+      await conn.rollback();
       return res.status(ruleCheck.status).json({
         success: false,
         code: ruleCheck.code,
@@ -304,14 +312,17 @@ async function createOnlineBooking(req, res) {
       });
     }
 
-    const totalPrice = await calculateBookingPrice(pitch_id, start_time, end_time, booking_date);
+    const totalPrice = await calculateBookingPrice(pitch_id, start_time, end_time, booking_date, conn);
 
-    const [result] = await pool.query(
+    // 3. Thực thi chèn đơn đặt sân an toàn 100% không bao giờ trùng lặp
+    const [result] = await conn.query(
       `INSERT INTO bookings 
        (customer_id, pitch_id, start_time, end_time, booking_date, customer_name, customer_phone, total_price, status, payment_status, note) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'unpaid', ?)`,
       [customerId, pitch_id, start_time, end_time, booking_date, customer_name.trim(), customer_phone.trim(), totalPrice, note || null]
     );
+
+    await conn.commit();
 
     return res.status(201).json({
       success: true,
@@ -323,40 +334,50 @@ async function createOnlineBooking(req, res) {
       }
     });
   } catch (error) {
+    await conn.rollback();
     return res.status(500).json({
       success: false,
       message: 'Lỗi khi tạo đơn đặt sân: ' + error.message
     });
+  } finally {
+    conn.release();
   }
 }
 
-// 3. Nhân viên đặt hộ tại quầy
+// 3. Nhân viên đặt hộ tại quầy (Áp dụng MySQL Transaction + FOR UPDATE chống trùng với online)
 async function createDeskBooking(req, res) {
+  const { pitch_id, booking_date, start_time, end_time, customer_name, customer_phone, payment_status, note } = req.body;
+  const staffId = req.user ? req.user.id : null;
+
+  if (!pitch_id || !booking_date || !start_time || !end_time || !customer_name || !customer_phone) {
+    return res.status(400).json({
+      success: false,
+      message: 'Vui lòng cung cấp đầy đủ thông tin đặt sân.'
+    });
+  }
+
+  const conn = await pool.getConnection();
   try {
-    const { pitch_id, booking_date, start_time, end_time, customer_name, customer_phone, payment_status, note } = req.body;
-    const staffId = req.user ? req.user.id : null;
+    await conn.beginTransaction();
 
-    if (!pitch_id || !booking_date || !start_time || !end_time || !customer_name || !customer_phone) {
-      return res.status(400).json({
-        success: false,
-        message: 'Vui lòng cung cấp đầy đủ thông tin đặt sân.'
-      });
-    }
-
-    const [pitchCheck] = await pool.query('SELECT status FROM pitches WHERE id = ?', [pitch_id]);
+    // 1. Khóa hàng của sân bóng trong transaction
+    const [pitchCheck] = await conn.query('SELECT id, status FROM pitches WHERE id = ? FOR UPDATE', [pitch_id]);
     if (pitchCheck.length === 0) {
+      await conn.rollback();
       return res.status(404).json({ success: false, message: 'Sân bóng không tồn tại.' });
     }
     if (pitchCheck[0].status === 'maintenance') {
+      await conn.rollback();
       return res.status(400).json({
         success: false,
         message: 'Sân đang bảo trì, không thể tạo đơn đặt tại quầy!'
       });
     }
 
-    // Kiểm tra toàn bộ 5 quy tắc nghiệp vụ BR-BOOKING-01 -> BR-BOOKING-05
-    const ruleCheckDesk = await validateBookingRules({ pitch_id, booking_date, start_time, end_time });
+    // 2. Kiểm tra toàn bộ 5 quy tắc nghiệp vụ BR-BOOKING-01 -> BR-BOOKING-05 với connection đang giữ lock
+    const ruleCheckDesk = await validateBookingRules({ pitch_id, booking_date, start_time, end_time }, conn);
     if (!ruleCheckDesk.isValid) {
+      await conn.rollback();
       return res.status(ruleCheckDesk.status).json({
         success: false,
         code: ruleCheckDesk.code,
@@ -364,14 +385,17 @@ async function createDeskBooking(req, res) {
       });
     }
 
-    const totalPrice = await calculateBookingPrice(pitch_id, start_time, end_time, booking_date);
+    const totalPrice = await calculateBookingPrice(pitch_id, start_time, end_time, booking_date, conn);
 
-    const [result] = await pool.query(
+    // 3. Chèn đơn đặt sân
+    const [result] = await conn.query(
       `INSERT INTO bookings 
        (customer_id, pitch_id, start_time, end_time, booking_date, customer_name, customer_phone, total_price, status, payment_status, created_by_user_id, note) 
        VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?)`,
       [pitch_id, start_time, end_time, booking_date, customer_name.trim(), customer_phone.trim(), totalPrice, payment_status || 'unpaid', staffId, note || null]
     );
+
+    await conn.commit();
 
     return res.status(201).json({
       success: true,
@@ -383,10 +407,13 @@ async function createDeskBooking(req, res) {
       }
     });
   } catch (error) {
+    await conn.rollback();
     return res.status(500).json({
       success: false,
       message: 'Lỗi khi tạo đơn tại quầy: ' + error.message
     });
+  } finally {
+    conn.release();
   }
 }
 
@@ -526,6 +553,8 @@ async function getMyBookings(req, res) {
       `SELECT 
         b.id,
         b.pitch_id,
+        b.customer_name,
+        b.customer_phone,
         b.booking_date,
         b.start_time,
         b.end_time,

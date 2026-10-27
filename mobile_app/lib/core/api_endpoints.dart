@@ -22,5 +22,11 @@ class ApiEndpoints {
   static const String services = '/services';
   static const String orderService = '/services/order';
   static String bookingServices(int bookingId) => '/services/order/$bookingId';
-}
 
+  // Tuyến đường Quản trị viên & Chủ sân (Admin Mobile Dashboard)
+  static const String allBookings = '/bookings';
+  static String updateBookingStatus(int id) => '/bookings/$id/status';
+  static const String pitchesAll = '/pitches?all=true';
+  static String updatePitchStatus(int id) => '/pitches/$id/status';
+  static const String staffList = '/auth/staff';
+}

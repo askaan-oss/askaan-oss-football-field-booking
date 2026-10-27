@@ -77,7 +77,10 @@ class BookingProvider with ChangeNotifier {
     } on DioException catch (e) {
       _isLoading = false;
       notifyListeners();
-      return {'success': false, 'message': e.error?.toString() ?? 'Lỗi kết nối máy chủ.'};
+      final serverMsg = e.response?.data is Map && e.response?.data['message'] != null
+          ? e.response!.data['message']
+          : (e.error?.toString() ?? 'Lỗi kết nối máy chủ.');
+      return {'success': false, 'message': serverMsg};
     }
   }
 

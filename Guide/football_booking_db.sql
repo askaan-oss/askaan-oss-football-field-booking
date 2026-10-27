@@ -111,7 +111,7 @@ CREATE TABLE `customers` (
   `phone` varchar(15) NOT NULL,
   `password` varchar(255) NOT NULL,
   `full_name` varchar(100) NOT NULL,
-  `avatar_url` varchar(255) DEFAULT NULL,
+  `avatar_url` longtext DEFAULT NULL,
   `is_active` tinyint(1) DEFAULT 1,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -190,7 +190,7 @@ CREATE TABLE `pitches` (
   `type` varchar(20) NOT NULL,
   `price_default` decimal(10,0) NOT NULL,
   `status` varchar(20) DEFAULT 'active',
-  `avatar_url` varchar(255) DEFAULT NULL
+  `avatar_url` longtext DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
@@ -214,7 +214,7 @@ DROP TABLE IF EXISTS `pitch_images`;
 CREATE TABLE `pitch_images` (
   `id` int(11) NOT NULL,
   `pitch_id` int(11) NOT NULL,
-  `image_url` varchar(255) NOT NULL,
+  `image_url` longtext NOT NULL,
   `caption` varchar(255) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

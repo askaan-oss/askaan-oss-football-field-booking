@@ -39,6 +39,10 @@ class ApiConstants {
     if (path == null || path.isEmpty) {
       return 'https://images.unsplash.com/photo-1529900748604-07564a03e7a6?w=600';
     }
+    // Nếu đã là chuỗi Base64 Data URI thì giữ nguyên không nối host
+    if (path.startsWith('data:image')) {
+      return path;
+    }
     if (path.startsWith('http://') || path.startsWith('https://')) {
       return path;
     }
